@@ -1,0 +1,391 @@
+<!--
+  Copyright (c) 2026 Alan Miller
+  Released under the MIT License
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Relationshapez: Pascal Triangle</title>
+<style>
+:root{
+  --gw-blue:#033C5A;
+  --gw-buff:#D6BF91;
+  --gw-buff-dark:#9C7A3E;
+  --gw-light:#7FBAE3;
+  --bg:#F7F5F0;
+  --panel:#FFFFFF;
+  --line:#D7DDE4;
+  --text:#1F2937;
+  --muted:#6B7280;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overscroll-behavior:none}
+body{padding:10px}
+.app{max-width:760px;margin:0 auto;display:grid;gap:10px}
+.panel{background:var(--panel);border-radius:18px;padding:12px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{border:0;background:var(--gw-blue);color:#fff;padding:10px 14px;border-radius:12px;font-weight:800;cursor:pointer;min-height:42px;touch-action:manipulation;line-height:1}
+.btn.secondary{background:var(--gw-buff);color:var(--gw-blue)}
+.btn.arrow{font-size:1.15rem;min-width:46px;padding:10px 12px}
+.btn:active:not(:disabled){transform:scale(.98)}
+.btn:disabled{opacity:.42;cursor:not-allowed;transform:none}
+.rows{font-weight:800;color:var(--gw-blue);margin-left:auto;white-space:nowrap}
+.controls{display:grid;grid-template-columns:1fr;gap:10px}
+.field-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 10px;align-items:center}
+label{font-weight:800;color:var(--gw-blue)}
+input[type="number"]{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:inherit;font-weight:700;background:#fff;color:var(--text)}
+input[type="number"]:focus{outline:none;border-color:var(--gw-blue);box-shadow:0 0 0 3px rgba(3,60,90,.10)}
+input[type="range"]{width:100%;accent-color:var(--gw-blue);min-height:34px}
+.canvas-wrap{position:relative;touch-action:none;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:radial-gradient(circle at 20% 20%, rgba(214,191,145,.22), transparent 34%), linear-gradient(180deg, #ffffff 0%, #fbfaf6 100%)}
+canvas{display:block;width:100%;height:min(68vh,590px);min-height:380px;touch-action:none}
+.zoom-note{position:absolute;right:10px;bottom:10px;background:rgba(255,255,255,.88);border:1px solid rgba(3,60,90,.12);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:.75rem;font-weight:700;pointer-events:none;opacity:0;transition:opacity .2s ease}
+.zoom-note.show{opacity:1}
+@media (min-width:700px){.controls{grid-template-columns:1fr 1fr}}
+@media (max-width:430px){body{padding:8px}.panel{padding:10px;border-radius:16px}.btn{padding:10px 12px}.topbar{align-items:flex-start}.rows{width:100%;margin-left:0}.field-grid{grid-template-columns:54px minmax(0,1fr)}canvas{height:62vh;min-height:330px}.btn.arrow{min-width:44px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel topbar">
+    <div class="btn-row">
+      <button id="animateBtn" class="btn" type="button">Animate</button>
+      <button id="resetBtn" class="btn secondary" type="button">Reset</button>
+      <button id="backBtn" class="btn secondary arrow" type="button" aria-label="Previous row">◀</button>
+      <button id="forwardBtn" class="btn secondary arrow" type="button" aria-label="Next row">▶</button>
+    </div>
+    <div id="rowCount" class="rows">2 rows</div>
+  </div>
+
+  <div class="panel controls" aria-label="Controls">
+    <div class="field-grid">
+      <label for="rowsInput">Maximum Rows</label>
+      <input id="rowsInput" type="number" min="2" max="64" step="1" value="16" inputmode="numeric" />
+    </div>
+    <div class="field-grid">
+      <label for="speedSlider">Speed</label>
+      <input id="speedSlider" type="range" min="1" max="100" value="45" />
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="canvasWrap" class="canvas-wrap" aria-label="Pascal triangle drawing canvas">
+      <canvas id="canvas"></canvas>
+      <div id="zoomNote" class="zoom-note">zoomed view</div>
+    </div>
+  </div>
+</div>
+<script>
+(()=>{
+'use strict';
+const GW_BLUE = '#033C5A';
+const GW_BUFF = '#D6BF91';
+const GW_BUFF_DARK = '#9C7A3E';
+const BG = '#FFFCF6';
+const MIN_ROWS = 2;
+const MAX_ROWS = 64;
+
+const canvas = document.getElementById('canvas');
+const wrap = document.getElementById('canvasWrap');
+const ctx = canvas.getContext('2d', { alpha:false });
+const animateBtn = document.getElementById('animateBtn');
+const resetBtn = document.getElementById('resetBtn');
+const backBtn = document.getElementById('backBtn');
+const forwardBtn = document.getElementById('forwardBtn');
+const rowsInput = document.getElementById('rowsInput');
+const speedSlider = document.getElementById('speedSlider');
+const rowCount = document.getElementById('rowCount');
+const zoomNote = document.getElementById('zoomNote');
+
+let cssW=0, cssH=0, dpr=1;
+let running=false, raf=0, lastTick=0;
+let currentRows=MIN_ROWS;
+let transition=null;
+let view={scale:1, tx:0, ty:0};
+let pointerState={dragging:false,lastX:0,lastY:0,pointers:new Map(),pinchDist:0,pinchScale:1,pinchCenter:null};
+
+const parityCache=[];
+const numberCache=[];
+
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function getTargetRows(){return clamp(Math.round(Number(rowsInput.value)||16),MIN_ROWS,MAX_ROWS);}
+function isSlow(){return Number(speedSlider.value)<=1;}
+function setRowText(){
+  rowCount.textContent=currentRows.toLocaleString()+` row${currentRows===1?'':'s'}`;
+}
+function updateButtons(){
+  const target=getTargetRows();
+  animateBtn.textContent=running?'Pause':'Animate';
+  backBtn.disabled=running || currentRows<=MIN_ROWS;
+  forwardBtn.disabled=running || currentRows>=target;
+  rowsInput.value=target;
+}
+function getParityRows(rows){
+  while(parityCache.length<rows){
+    const r=parityCache.length;
+    const row=[];
+    for(let c=0;c<=r;c++) row.push((c & ~r)===0);
+    parityCache.push(row);
+  }
+  return parityCache.slice(0,rows);
+}
+function getNumberRow(rowIndex){
+  while(numberCache.length<=rowIndex){
+    const r=numberCache.length;
+    const row=[];
+    let value=1n;
+    for(let c=0;c<=r;c++){
+      row.push(value.toString());
+      value = value * BigInt(r-c) / BigInt(c+1);
+    }
+    numberCache.push(row);
+  }
+  return numberCache[rowIndex];
+}
+function drawingMetrics(rows){
+  const margin=Math.max(18, Math.min(cssW,cssH)*0.055);
+  const usableW=Math.max(10,cssW-2*margin);
+  const usableH=Math.max(10,cssH-2*margin);
+  const steps=Math.max(1,rows-1);
+  const hGap=usableW/steps;
+  const vGap=usableH/steps;
+  const gap=Math.min(hGap,vGap);
+  const width=gap*steps;
+  const height=gap*steps;
+  const radius=clamp(gap*0.36,1.15,15);
+  const centerX=cssW/2+view.tx;
+  const topY=cssH/2-height/2+view.ty;
+  return {gap:gap*view.scale, radius:radius*view.scale, centerX, topY, height:height*view.scale};
+}
+function pointFor(r,c,rows){
+  const m=drawingMetrics(rows);
+  return {
+    x:m.centerX + (c-r/2)*m.gap,
+    y:m.topY + r*(m.height/Math.max(1,rows-1))
+  };
+}
+function clear(){ctx.fillStyle=BG;ctx.fillRect(0,0,cssW,cssH);}
+function drawCircle(x,y,r,odd,alpha=1){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle=odd?GW_BLUE:'#FFFFFF';
+  ctx.fill();
+  ctx.strokeStyle=odd?'rgba(3,60,90,.82)':'rgba(3,60,90,.34)';
+  ctx.lineWidth=Math.max(0.8,Math.min(2.2,r*.16));
+  ctx.stroke();
+  ctx.restore();
+}
+function drawTextToken(text,x,y,r,alpha=1){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.fillStyle=GW_BUFF_DARK;
+  ctx.strokeStyle='rgba(255,255,255,.92)';
+  ctx.lineWidth=Math.max(2,r*.25);
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  const fontSize=clamp(r*1.45,7,18);
+  ctx.font=`800 ${fontSize}px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif`;
+  let label=text;
+  const maxChars=clamp(Math.floor(r*1.15),1,8);
+  if(label.length>maxChars) label=label.slice(0,Math.max(1,maxChars-1))+'…';
+  ctx.strokeText(label,x,y);
+  ctx.fillText(label,x,y);
+  ctx.restore();
+}
+function drawGuide(rows){
+  const m=drawingMetrics(rows);
+  ctx.save();
+  ctx.strokeStyle='rgba(214,191,145,.35)';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(m.centerX, m.topY-m.radius*1.8);
+  ctx.lineTo(m.centerX-(rows-1)*m.gap/2-m.radius*1.8, m.topY+m.height+m.radius*1.8);
+  ctx.lineTo(m.centerX+(rows-1)*m.gap/2+m.radius*1.8, m.topY+m.height+m.radius*1.8);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+function drawRows(rows, skipLast=false){
+  const parities=getParityRows(rows);
+  const m=drawingMetrics(rows);
+  for(let r=0;r<rows;r++){
+    if(skipLast && r===rows-1) continue;
+    for(let c=0;c<=r;c++){
+      const p=pointFor(r,c,rows);
+      drawCircle(p.x,p.y,m.radius,parities[r][c],1);
+    }
+  }
+}
+function drawTransition(){
+  const nextRows=transition.to;
+  const rowIndex=nextRows-1;
+  drawRows(nextRows,true);
+  const parities=getParityRows(nextRows)[rowIndex];
+  const numbers=getNumberRow(rowIndex);
+  const m=drawingMetrics(nextRows);
+  const p=clamp(transition.progress,0,1);
+  const holdEnd=.42;
+  const fade=p<=holdEnd?0:(p-holdEnd)/(1-holdEnd);
+  const textAlpha=1-fade;
+  const circleAlpha=fade;
+  for(let c=0;c<=rowIndex;c++){
+    const pt=pointFor(rowIndex,c,nextRows);
+    if(circleAlpha>0) drawCircle(pt.x,pt.y,m.radius,parities[c],circleAlpha);
+    if(textAlpha>0) drawTextToken(numbers[c],pt.x,pt.y,m.radius,textAlpha);
+  }
+}
+function render(){
+  clear();
+  const visibleRows=transition?transition.to:currentRows;
+  drawGuide(visibleRows);
+  if(transition) drawTransition();
+  else drawRows(currentRows,false);
+}
+function resizeCanvas(){
+  const rect=canvas.getBoundingClientRect();
+  dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+  cssW=Math.max(280,rect.width); cssH=Math.max(280,rect.height);
+  canvas.width=Math.round(cssW*dpr); canvas.height=Math.round(cssH*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  render();
+}
+function resetView(){view={scale:1,tx:0,ty:0};zoomNote.classList.remove('show');}
+function pauseAnimation(){
+  running=false; cancelAnimationFrame(raf); transition=null; lastTick=0;
+  updateButtons(); render();
+}
+function animationDelay(){
+  const s=Number(speedSlider.value);
+  return Math.round(1000 - (s/100)*930);
+}
+function stepForward(){
+  const target=getTargetRows();
+  if(currentRows<target){currentRows++; setRowText(); updateButtons(); render();}
+}
+function stepBack(){
+  if(currentRows>MIN_ROWS){currentRows--; setRowText(); updateButtons(); render();}
+}
+function animateLoop(timestamp){
+  if(!running)return;
+  const target=getTargetRows();
+  if(currentRows>=target){pauseAnimation();return;}
+  if(isSlow()){
+    if(!transition) transition={from:currentRows,to:currentRows+1,start:timestamp,progress:0};
+    transition.progress=clamp((timestamp-transition.start)/1200,0,1);
+    render();
+    if(transition.progress>=1){
+      currentRows=transition.to;
+      setRowText();
+      transition=null;
+      render();
+    }
+  }else{
+    if(!lastTick) lastTick=timestamp;
+    if(timestamp-lastTick>=animationDelay()){
+      currentRows++;
+      setRowText();
+      lastTick=timestamp;
+      render();
+    }
+  }
+  updateButtons();
+  raf=requestAnimationFrame(animateLoop);
+}
+function beginAnimation(){
+  const target=getTargetRows();
+  if(currentRows>=target) currentRows=MIN_ROWS;
+  running=true; transition=null; lastTick=0;
+  setRowText(); updateButtons(); render();
+  raf=requestAnimationFrame(animateLoop);
+}
+function toggleAnimation(){running?pauseAnimation():beginAnimation();}
+function fullReset(){
+  running=false; cancelAnimationFrame(raf); transition=null; lastTick=0;
+  currentRows=MIN_ROWS; resetView(); setRowText(); updateButtons(); render();
+}
+function zoomAt(screenX,screenY,factor){
+  const oldScale=view.scale;
+  const newScale=clamp(view.scale*factor,.7,80);
+  const scaleChange=newScale/oldScale;
+  view.tx = screenX - cssW/2 - (screenX - cssW/2 - view.tx)*scaleChange;
+  view.ty = screenY - cssH/2 - (screenY - cssH/2 - view.ty)*scaleChange;
+  view.scale=newScale;
+  zoomNote.classList.add('show');
+  render();
+}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function centerOfPointers(){
+  const arr=[...pointerState.pointers.values()];
+  return {x:(arr[0].x+arr[1].x)/2,y:(arr[0].y+arr[1].y)/2};
+}
+wrap.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  zoomAt(e.clientX-rect.left,e.clientY-rect.top,Math.exp(-e.deltaY*0.0012));
+},{passive:false});
+wrap.addEventListener('pointerdown',e=>{
+  wrap.setPointerCapture(e.pointerId);
+  const rect=canvas.getBoundingClientRect();
+  const p={x:e.clientX-rect.left,y:e.clientY-rect.top};
+  pointerState.pointers.set(e.pointerId,p);
+  if(pointerState.pointers.size===1){pointerState.dragging=true;pointerState.lastX=p.x;pointerState.lastY=p.y;}
+  if(pointerState.pointers.size===2){
+    const arr=[...pointerState.pointers.values()];
+    pointerState.pinchDist=dist(arr[0],arr[1]); pointerState.pinchScale=view.scale; pointerState.pinchCenter=centerOfPointers();
+  }
+});
+wrap.addEventListener('pointermove',e=>{
+  if(!pointerState.pointers.has(e.pointerId))return;
+  const rect=canvas.getBoundingClientRect();
+  const p={x:e.clientX-rect.left,y:e.clientY-rect.top};
+  pointerState.pointers.set(e.pointerId,p);
+  if(pointerState.pointers.size===2){
+    const arr=[...pointerState.pointers.values()];
+    const c=centerOfPointers();
+    const factor=dist(arr[0],arr[1])/(pointerState.pinchDist||1);
+    view.scale=clamp(pointerState.pinchScale*factor,.7,80);
+    view.tx += c.x-(pointerState.pinchCenter?.x ?? c.x);
+    view.ty += c.y-(pointerState.pinchCenter?.y ?? c.y);
+    pointerState.pinchCenter=c;
+    zoomNote.classList.add('show');
+    render();
+  }else if(pointerState.dragging){
+    view.tx += p.x-pointerState.lastX; view.ty += p.y-pointerState.lastY;
+    pointerState.lastX=p.x; pointerState.lastY=p.y;
+    zoomNote.classList.add('show');
+    render();
+  }
+});
+function endPointer(e){
+  pointerState.pointers.delete(e.pointerId);
+  pointerState.dragging=false;
+  if(pointerState.pointers.size===1){
+    const p=[...pointerState.pointers.values()][0];
+    pointerState.dragging=true; pointerState.lastX=p.x; pointerState.lastY=p.y;
+  }
+}
+wrap.addEventListener('pointerup',endPointer); wrap.addEventListener('pointercancel',endPointer);
+
+animateBtn.addEventListener('click',toggleAnimation);
+resetBtn.addEventListener('click',fullReset);
+forwardBtn.addEventListener('click',()=>{if(!running)stepForward();});
+backBtn.addEventListener('click',()=>{if(!running)stepBack();});
+rowsInput.addEventListener('change',()=>{
+  const target=getTargetRows();
+  if(currentRows>target) currentRows=target;
+  setRowText(); updateButtons(); render();
+});
+speedSlider.addEventListener('input',()=>{
+  if(running){transition=null; lastTick=0;}
+});
+let resizeTimer=0;
+window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(resizeCanvas,80);});
+setRowText(); updateButtons(); resizeCanvas();
+})();
+</script>
+</body>
+</html>
