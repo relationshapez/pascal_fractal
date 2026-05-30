@@ -7,7 +7,7 @@ This project is a single-file HTML exploration of Pascal's Triangle. Each entry 
 
 As more rows are displayed, the odd/even pattern begins to resemble the Sierpiński triangle.
 
-<https://relationshapez.github.io/pascalfractal/>
+<https://relationshapez.github.io/pascal_fractal/>
 
 ## Files
 
